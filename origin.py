@@ -2,7 +2,6 @@ import telnetlib
 import xmltodict
 
 
-
 def unidata_querybuilder(
     voc_filename,
     return_fields_list,
@@ -34,7 +33,6 @@ def unidata_querybuilder(
     Returns:
         Tuple: Rows of data in OrderedDict format.
     """
-    import xmltodict
 
     unidata_errors = {
         "No data retrieved from": "No data returned for select query.",
@@ -213,4 +211,3 @@ def unidata_querybuilder(
         return (telnet_results,)
 
     return tuple(telnet_results)
-
