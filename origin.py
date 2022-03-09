@@ -2,6 +2,73 @@ import telnetlib
 import xmltodict
 
 
+def tn_login_start():
+    global WAIT_SEC
+    global TELNET
+
+    host = VISION_CREDENTIALS.ip
+    user = VISION_CREDENTIALS.user
+    password = VISION_CREDENTIALS.pswd
+    port = VISION_CREDENTIALS.port
+
+    # wait_sec = 1 #this is how long to delay when waiting for a response
+
+    try:
+        TELNET = telnetlib.Telnet(host, port)
+        TELNET.read_until(b"login: ", 5)
+        TELNET.write(user.encode("ascii") + b"\n")
+        TELNET.read_until(b"Password: ", 5)
+        TELNET.write(password.encode("ascii") + b"\n")
+    except (TimeoutError, ConnectionRefusedError) as err:
+        raise PermissionError("Invalid Vision Credientials Used. (IP/Port Mismatch)") from err
+
+    if b"Invalid domain/user/password" in TELNET.read_until(b"UniData Release", 5):
+        TELNET.close()
+        raise PermissionError("Invalid Vision Credientials Used.")
+    TELNET.write(b"\n")
+    TELNET.write(b"\n")
+    TELNET.write(b"\n")
+    TELNET.write(b"\n")
+
+
+def tn_vision_dump_to_ecl():
+
+    while b"1 record listed" not in TELNET.read_until(b"\n:", 0.1):
+        TELNET.write("\x03Q\n\n\nLIST RELEASE SAMPLE 1\n".encode("ascii"))
+    TELNET.read_until(b"\n:", 0.1)
+
+    return
+
+
+def tn_vision_close_connection():
+    global TELNET
+    tn_vision_dump_to_ecl()
+    try:
+        TELNET.write(b"BYE\n\n")
+        TELNET.write(b"\n")
+        TELNET.read_until(b"cgfdg~fdgdf~gdfg~fdg", 1)
+        TELNET.close()
+    except ConnectionResetError as _err:
+        # print(_err)
+        TELNET.close()
+        TELNET = None
+        return
+    print("Vision Software disconnect Failed, attempting socket disconnect...")
+    TELNET.close()
+    TELNET = None
+
+
+def tn_wait_write(tn_wait, tn_write, new_wait_sec=WAIT_SEC):  # usage: tn_write = "what you want to write now" tn_wait = "string your waiting for next"
+    tn_wait = tn_wait.encode()
+    tn_input = (tn_write + "\r\n").encode()
+    _results_print = TELNET.read_until(tn_wait, (new_wait_sec))
+    # time.sleep(1)
+    if TN_DEBUG:
+        print(_results_print.decode("ascii", "ignore"))  # debug, turn off when done
+
+    TELNET.write(tn_input)
+
+
 def unidata_querybuilder(
     voc_filename,
     return_fields_list,
