@@ -1,5 +1,7 @@
-import telnetlib
-import xmltodict
+# import telnetlib
+# import xmltodict
+
+from VisionBackofficeTools import VisionConnection
 
 
 def tn_login_start():
@@ -67,6 +69,20 @@ def tn_wait_write(tn_wait, tn_write, new_wait_sec=WAIT_SEC):  # usage: tn_write 
         print(_results_print.decode("ascii", "ignore"))  # debug, turn off when done
 
     TELNET.write(tn_input)
+
+
+def tn_return_wait_write(tn_wait, tn_write, new_wait=(WAIT_SEC * 10)):
+    # usage: RETURNS LAST DATA ASKED FOR THEN: tn_write = "what you want to write now" tn_wait = "string your waiting for next"
+    tn_wait = tn_wait.encode()
+    tn_input = (tn_write + "\r\n").encode()
+    results_print = TELNET.read_until(tn_wait, new_wait)  # wait_sec times 10 seconds of data stream
+    # time.sleep(1)
+    TELNET.write(tn_input)
+    if not TN_DEBUG:
+        return results_print.decode("ascii", "ignore")  # turn off when debugging
+    result = results_print.decode("ascii", "ignore")  # debug, turn off when done
+    print(result)  # debug, turn off when done
+    return result  # debug, turn off when done
 
 
 def unidata_querybuilder(
@@ -278,3 +294,16 @@ def unidata_querybuilder(
         return (telnet_results,)
 
     return tuple(telnet_results)
+
+
+def main():
+
+    with VisionConnection("127.0.0.1", 23, "bob", "pword") as vision:
+        vision.dumptoECL()
+        vision.wait_write("", "")
+
+    return
+
+
+if __name__ == "__main__":
+    main()
