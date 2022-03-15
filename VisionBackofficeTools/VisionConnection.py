@@ -6,108 +6,145 @@ for user and pswd of the Vision Backoffice System
 from telnetlib import Telnet
 
 
-def yield_vision_telnet_connection(host: str, port: int, user: str, password: str) -> Telnet:
+class VisionConnection(Telnet):
+    def __init__(self, host: str, port: int, username: str, password: str) -> None:
+        super(VisionConnection, self).__init__(host=host, port=port)
 
-    try:
-        with Telnet(host, port) as telnet:
-            telnet.read_until(b"login: ", 5)
-            telnet.write(user.encode("ascii") + b"\n")
-            telnet.read_until(b"Password: ", 5)
-            telnet.write(password.encode("ascii") + b"\n")
-
-            if b"Invalid domain/user/password" in telnet.read_until(b"UniData Release", 5):
-                raise PermissionError("Invalid Vision Credientials Used.")
-            telnet.write(b"\n")
-            telnet.write(b"\n")
-            telnet.write(b"\n")
-            telnet.write(b"\n")
-
-            return telnet
-    except (TimeoutError, ConnectionRefusedError) as err:
-        raise PermissionError("Invalid Vision Credientials Used. (IP/Port Mismatch or Whitelisting Error)") from err
-
-
-class VisionConnection:
-    def __init__(self, ip: str, port: int, username: str, password: str) -> None:
-        connection = yield_vision_telnet_connection(ip, port, username, password)
-        connection = self.gather_menu_type(connection)
-        connection = self.vision_dump_to_ecl(connection)
-
-        self.connection: Telnet = connection
-        self.debug: bool = False
+        self.visiondebug: bool = False
         self.timeout: int = 3
+        self.menu_type = None
+        self.prompt = "menu"
+
+        self.create_vision_telnet_connection(username, password)
+        self.gather_menu_type()
 
         return
 
-    def close(self):
-        """Close the connection."""
-        connection = self.connection
+    def create_vision_telnet_connection(self, user: str, password: str) -> None:
 
-        connection = self.vision_dump_to_ecl(connection)
         try:
-            connection.write(b"BYE\n\n")
-            connection.write(b"\n")
-            connection.read_until(b"cgfdg~fdgdf~gdfg~fdg", 1)
-            connection.close()
+
+            self.read_until(b"login: ", 5)
+            self.write(user.encode("ascii") + b"\n")
+            self.read_until(b"Password: ", 5)
+            self.write(password.encode("ascii") + b"\n")
+
+            if b"Invalid domain/user/password" in self.read_until(b"Enter", 5):
+                raise PermissionError("Invalid Vision Credientials Used.")
+            self.write(b"\n")
+            self.write(b"\n")
+            self.write(b"\n")
+            self.write(b"\n")
+
+        except (TimeoutError, ConnectionRefusedError) as err:
+            self.connection = None
+            raise PermissionError("Invalid Vision Credientials Used. (IP/Port Mismatch or Whitelisting Error)") from err
+
+        return
+
+    def close_vision(self):
+        """Close the connection."""
+
+        try:
+            self.write(b"END\n\nEND\n\nEND\n\nEND\n\n\n\n")
+            self.write(b"\n\n\n\n\n\n\n16\n")
+            self.write(b"\n\n\n\n\n\n\n5\n")
+            self.run_ecl()
+            self.write(b"BYE\n\n")
+            self.write(b"\n")
+            self.read_until(b"cgfdg~fdgdf~gdfg~fdg", 1)
+            self.close()
         except ConnectionResetError as _err:
             # print(_err)
-            connection.close()
-            self.connection = None
+            self.close()
+
             return
         print("Vision Software disconnect Failed, attempting socket disconnect...")
 
-        if connection:
-            connection.close()
+        try:
+            super().close()
+        except AttributeError as _err:
 
-        self.connection = None
+            return
 
     def __enter__(self) -> None:
+        if self.visiondebug:
+            print("Connecting to vision...")
         return self
 
     def __exit__(self, type, value, traceback):
-        self.close()
+        if self.visiondebug:
+            print("Closing vision...")
+        self.close_vision()
 
-    def vision_dump_to_ecl(self, telnet: Telnet) -> Telnet:
+    def run_menu(self, force=False) -> None:
+        if self.prompt == "menu" and not force:
+            return
+        self.run_ecl(force=True)
+        dump = self.read_until(b":", 1)
+        self.write(b"M\n")
+        self.prompt("M")
+        self.prompt == "menu"
 
-        while b"1 record listed" not in telnet.read_until(b"\n:", 0.1):
-            telnet.write("\x03Q\n\n\nABORT\n\n\nLIST RELEASE SAMPLE 1\n".encode("ascii"))
-        telnet.read_until(b"\n:", 0.1)
-        return telnet
+    def run_ecl(self, force=False) -> None:
+        if self.prompt == "ecl" and not force:
+            return
+        read_socket = ""
+        while "1 record listed" not in read_socket:
 
-    def gather_menu_type(self, connection: Telnet) -> Telnet:
-        connection = self.vision_dump_to_ecl(connection)
-        connection.write(b"M\n")
+            self.write("\x03".encode("ascii"))
 
-        if b"***  MAIN MENU  ***" in connection.read_until(b"Enter"):
+            dump = self.read_until(b"Q", 1)
+
+            if "DEBUGGER" in dump.decode("ascii", "ignore").upper():
+
+                self.write("ABORT\n\n\nLIST RELEASE SAMPLE 1\n".encode("ascii"))
+
+            self.write("Q\n\n\nLIST RELEASE SAMPLE 1\n".encode("ascii"))
+
+            read_socket += self.read_until(b":", 1).decode("ascii", "ignore")
+
+        _dump = self.read_until(b"\n:", 2)
+
+        self.prompt = "ecl"
+        return
+
+    def gather_menu_type(self) -> None:
+        self.run_ecl()
+        self.write(b"M\n")
+
+        if b"***  MAIN MENU  ***" in self.read_until(b"Enter", 0.1):
             self.menu_type = "main"
-            return connection
+            return
 
         self.menu_type = "scanner"
 
-        return connection
+        return
 
     def wait_write(self, wait_until, write_this, wait_sec=None):
         wait_sec = self.timeout if wait_sec is None else wait_sec
         wait_until = wait_until.encode()
         tn_input = (write_this + "\r\n").encode()
 
-        if self.debug:
-            print(self.connection.read_until(wait_until, wait_sec).decode("ascii", "ignore"))
+        if self.visiondebug:
+            print(self.read_until(wait_until, wait_sec).decode("ascii", "ignore"))
         else:
-            self.connection.read_until(wait_until, wait_sec)
-        self.connection.write(tn_input)
+            _dump = self.read_until(wait_until, wait_sec)
+        self.write(tn_input)
 
-    def return_wait_write(self, wait_until, write_this, wait_sec=None):
+    def return_wait_write(self, wait_until, write_this, wait_sec=None, replace_scrnclr=True):
         """RETURNS LAST DATA ASKED FOR THEN:
         write_this = "what you want to write now"
         wait_until = "string your waiting for next" """
         wait_sec = self.timeout * 10 if wait_sec is None else wait_sec
         wait_until = wait_until.encode()
         write_this = (write_this + "\r\n").encode()
-        results = self.connection.read_until(wait_until, wait_sec)
-        self.connection.write(write_this)
-        if not self.debug:
+        results = self.read_until(wait_until, wait_sec)
+        self.write(write_this)
+        if not self.visiondebug:
             return results.decode("ascii", "ignore")
         result = results.decode("ascii", "ignore")
         print(result)
-        return result
+        if not replace_scrnclr:
+            return result
+        return result.replace("[H[2J", "")
