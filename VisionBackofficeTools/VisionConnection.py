@@ -78,6 +78,11 @@ class VisionConnection(Telnet):
         self.close_vision()
 
     def run_menu(self, force=False) -> None:
+        """Runs the Vision Backoffice Menu if it is not already running.
+
+        Args:
+            force (bool, optional): Forces function to run regardless of prompt attrib status. Will reset Backoffice to root menu (menu_type). Defaults to False.
+        """
         if self.prompt == "menu" and not force:
             return
         self.run_ecl(force=True)
@@ -87,6 +92,11 @@ class VisionConnection(Telnet):
         self.prompt == "menu"
 
     def run_ecl(self, force=False) -> None:
+        """Runs the Vision ECL prompt if it is not already running.
+
+        Args:
+            force (bool, optional): Forces function to run regardless of prompt attrib status. Will reset to base prompt of ECL. Defaults to False.
+        """
         if self.prompt == "ecl" and not force:
             return
         read_socket = ""
@@ -110,15 +120,24 @@ class VisionConnection(Telnet):
         return
 
     def gather_menu_type(self) -> None:
-        self.run_ecl()
+        """For setting the menu_type attribute. Not Normally used."""
+        save_prompt = self.prompt[::-1][::-1]
+        self.run_ecl(force=True)
         self.write(b"M\n")
 
         if b"***  MAIN MENU  ***" in self.read_until(b"Enter", 0.1):
             self.menu_type = "main"
+            if save_prompt == "ecl":
+                self.run_ecl()
+                return
+            self.run_menu()
             return
 
         self.menu_type = "scanner"
-
+        if save_prompt == "ecl":
+            self.run_ecl()
+            return
+        self.run_menu()
         return
 
     def wait_write(self, wait_until, write_this, wait_sec=None):
